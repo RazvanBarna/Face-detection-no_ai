@@ -443,7 +443,7 @@ typedef struct {
 	int c_min, c_max, r_min, r_max;
 }rectangle_coord;
 
-Mat get_object_instance(const Mat& src, const Mat& org) {
+Mat get_object_instance(const Mat& src) {
 	int height = src.rows;
 	int width = src.cols;
 	Mat dst = Mat(height, width, CV_8UC1, Scalar(0));
@@ -451,19 +451,10 @@ Mat get_object_instance(const Mat& src, const Mat& org) {
 	for (int i = 0; i < height; i++) {
 		for (int j = 0; j < width; j++) {
 			Vec3b val = src.at<Vec3b>(i, j);
-			Vec3b val_org = org.at<Vec3b>(i, j);
-			uchar b = val_org[0];
-			uchar g = val_org[1];
-			uchar r = val_org[2];
-
-			bool bgr_skin = r > 95 && g > 40 && b > 20 &&
-				r > g && r > b &&
-				abs((int)r - (int)g) > 15 &&
-				r > 100;
 
 			if (
-				val[1] >= 100 && val[1] <= 150 &&
-				val[2] >= 140 && val[2] <= 168) {
+				val[1] >= 77 && val[1] <= 127 &&
+				val[2] >= 133 && val[2] <= 173) {
 				dst.at<uchar>(i, j) = 255;
 			}
 		}
@@ -715,6 +706,67 @@ void draw_hists(const Mat& src) {
 
 }
 
+Mat transform_HSV(const Mat& src) {
+	int height = src.rows;
+	int width = src.cols;
+
+	Mat dst = Mat(height, width, CV_8UC3);
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			Vec3b pixel = src.at<Vec3b>(i, j);
+			float b =(float) pixel[0] / 255;
+			float g =(float) pixel[1] / 255;
+			float r =(float) pixel[2] / 255;
+			float M = max(b, max(g, r));
+			float m = min(b, min(g, r));
+			float C = M - m;
+			float V = M;
+			float S, H;
+			if (V != 0.0) {
+				S = C / V;
+			}
+			else S = 0;
+
+			if (C != 0.0) {
+				if (M == r)      H = 60.0f * (g - b) / C;
+				else if (M == g) H = 120.0f + 60.0f * (b - r) / C;
+				else if (M == b) H = 240.0f + 60.0f * (r - g) / C;
+			}
+			else H = 0;
+
+			if (H < 0) {
+				H = H + 360;
+			}
+
+			uchar H_norm = (uchar)(H * 255.0f / 360.0f);
+			uchar S_norm = (uchar)(S * 255.0f);
+			uchar V_norm = (uchar)(V * 255.0f);
+			dst.at<Vec3b>(i, j) = Vec3b(H_norm, S_norm, V_norm);
+		}
+	}
+	return dst;
+}
+
+Mat obj_instance_HSV(const Mat& src) {
+	int height = src.rows;
+	int width = src.cols;
+
+	Mat dst = Mat(height, width,CV_8UC1, Scalar(0));
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			uchar H = src.at<Vec3b>(i, j)[0];
+			uchar S = src.at<Vec3b>(i, j)[1];
+			uchar V = src.at<Vec3b>(i, j)[2];
+
+			if (H >= 0 && H <= 18 && S >= 40 && S <= 150 && V >= 60 && V <= 200) {
+				dst.at<uchar>(i, j) = 255;
+			}
+		}
+	}
+
+	return dst;
+}
+
 Mat bfs(const Mat& src, int& label) {
 	label = 0;
 	int height = src.rows;
@@ -785,21 +837,34 @@ void cam() {
 
 	while (cap.isOpened()) {
 		cap >> img;
-		//Mat blur = gaussian_blur(img);
-		Mat dst1 = transfor_Ycbcr(img);
-		//normalize_Y(dst1);
-		draw_hists(dst1);
-		Mat obj = get_object_instance(dst1, img);
-		int l = 0;
-		Mat b = bfs(obj, l);
+		Mat blur = gaussian_blur(img);
+		Mat dst = transform_HSV(blur);
+		Mat obj = obj_instance_HSV(dst);
 		if (!img.empty()) {
-			draw_with_thiness(b, l);
-			imshow("Obj", obj);
 			imshow("Original", img);
-			imshow("Video camera", dst1);
+			imshow("HSV", dst);
+			imshow("Bin", obj);
 		}
 		waitKey(1);
 	}
+
+	//while (cap.isOpened()) {
+	//	cap >> img;
+	//	Mat blur = gaussian_blur(img);
+	//	Mat dst1 = transfor_Ycbcr(img);
+	//	normalize_Y(dst1);
+	//	draw_hists(dst1);
+	//	Mat obj = get_object_instance(dst1);
+	//	int l = 0;
+	//	Mat b = bfs(obj, l);
+	//	if (!img.empty()) {
+	//		draw_with_thiness(b, l);
+	//		imshow("Obj", obj);
+	//		imshow("Original", img);
+	//		imshow("Video camera", dst1);
+	//	}
+	//	waitKey(1);
+	//}
 }
 
 int main()
