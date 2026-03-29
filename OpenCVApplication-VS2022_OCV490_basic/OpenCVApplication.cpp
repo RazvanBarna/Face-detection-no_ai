@@ -1,4 +1,4 @@
-// OpenCVApplication.cpp : Defines the entry point for the console application.
+﻿// OpenCVApplication.cpp : Defines the entry point for the console application.
 //
 
 #include "stdafx.h"
@@ -435,28 +435,53 @@ bool inside(int i, int j, int width, int height) {
 }
 
 typedef struct {
-	Mat contour;
-	int length;
-}contour_info;
-
-typedef struct {
+	int area;
+	int parameter;
 	int c_min, c_max, r_min, r_max;
-}rectangle_coord;
+}component_info;
 
-Mat get_object_instance(const Mat& src) {
-	int height = src.rows;
-	int width = src.cols;
+Mat get_object_instance(const Mat& org, const Mat& yCbCr, const Mat& hsv) {
+	int height = org.rows;
+	int width = org.cols;
 	Mat dst = Mat(height, width, CV_8UC1, Scalar(0));
 
 	for (int i = 0; i < height; i++) {
 		for (int j = 0; j < width; j++) {
-			Vec3b val = src.at<Vec3b>(i, j);
+			uchar Y = yCbCr.at<Vec3b>(i, j)[0];
+			uchar Cb = yCbCr.at<Vec3b>(i, j)[1];
+			uchar Cr = yCbCr.at<Vec3b>(i, j)[2];
 
-			if (
-				val[1] >= 77 && val[1] <= 127 &&
-				val[2] >= 133 && val[2] <= 173) {
+			uchar R = org.at<Vec3b>(i, j)[2];
+			uchar G = org.at<Vec3b>(i, j)[1];
+			uchar B = org.at<Vec3b>(i, j)[0];
+
+			uchar H_norm = hsv.at<Vec3b>(i, j)[0];
+			uchar S_norm = hsv.at<Vec3b>(i, j)[1];
+			uchar V_norm = hsv.at<Vec3b>(i, j)[2];
+
+			float H = H_norm * 360.0f / 255.0f;
+			float S = S_norm / 255.0f;
+			//float V = V_norm / 255.0f;
+			int A = R - G;
+
+			bool rgb_common = (R > 95) && (G > 40) && (B > 20) &&
+				(R > G) && (R > B) &&
+				(abs(A) > 15) && (A > 15);
+
+			bool cond1 = rgb_common &&
+				(H >= 0.0f && H <= 50.0f) &&
+				(S >= 0.23f && S <= 0.68f) ;
+
+			bool cond2 = rgb_common &&
+				(Cr > 135) && (Cb > 85) && (Y > 80) &&
+				(Cr <= 1.5862f * Cb + 20.0f) &&
+				(Cr >= 0.3448f * Cb + 76.2069f) &&
+				(Cr >= -4.5652f * Cb + 234.5652f) &&
+				(Cr <= -1.15f * Cb + 301.75f) &&
+				(Cr <= -2.2857f * Cb + 432.85f);
+
+			if (cond1 || cond2) 
 				dst.at<uchar>(i, j) = 255;
-			}
 		}
 	}
 	return dst;
@@ -487,6 +512,26 @@ Mat gaussian_blur(const Mat& src) {
 		}
 	}
 
+	return dst;
+}
+
+Mat median_filter(const Mat& src)	 {
+	int height = src.rows;
+	int width = src.cols;
+	Mat dst = Mat::zeros(height, width, CV_8UC1);
+
+	for (int i = 2; i < height - 2; i++) {
+		for (int j = 2; j < width - 2; j++) {
+			int white_count = 0;
+			for (int ki = -2; ki <= 2; ki++) {
+				for (int kj = -2; kj <= 2; kj++) {
+					if (src.at<uchar>(i + ki, j + kj) == 255)
+						white_count++;
+				}
+			}
+			dst.at<uchar>(i, j) = (white_count >= 13) ? 255 : 0;
+		}
+	}
 	return dst;
 }
 
@@ -566,74 +611,12 @@ bool is_contour(const Mat& src, int i, int j, int width, int height) {
 		);
 }
 
-contour_info parameter(const Mat& src) {
-	int height = src.rows;
-	int width = src.cols;
-	Mat cont = Mat(height, width, CV_8UC1, Scalar(0));
-	int length = 0;
-
-	for (int i = 0; i < height; i++) {
-		for (int j = 0; j < width; j++) {
-			uchar pixel = src.at<uchar>(i, j);
-			if (pixel == 255 && is_contour(src, i, j, width, height)) {
-				length++;
-				cont.at<uchar>(i, j) = 255;
-			}
-		}
-	}
-	return contour_info{ cont, length };
-}
-
-float thinness_ratio(const Mat& src) {
-	int area = calculate_area(src);
-	int per = parameter(src).length;
-
-	return (4.0f * CV_PI * (float)area) / ((float)per * (float)per);
-}
-
-rectangle_coord find_rect(const Mat& src) {
-	int height = src.rows;
-	int width = src.cols;
-	int c_min = INT_MAX;
-	int c_max = 0;
-	int r_min = INT_MAX;
-	int r_max = 0;
-
-	for (int i = 0; i < height; i++) {
-		for (int j = 0; j < width; j++) {
-			uchar pixel = src.at<uchar>(i, j);
-			if (pixel == 255) {
-				if (i < r_min)
-					r_min = i;
-				if (i > r_max)
-					r_max = i;
-				if (j > c_max)
-					c_max = j;
-				if (j < c_min)
-					c_min = j;
-			}
-		}
-	}
-	return rectangle_coord{ c_min, c_max, r_min,r_max };
-}
-
-Mat draw_rectangle(rectangle_coord r, const Mat& src) {
-
-	Mat dst = src.clone();
-	int height = src.rows;
-	int width = src.cols;
-	for (int i = r.c_min; i <= r.c_max; i++) {
-		dst.at<Vec3b>(r.r_min, i) = (0, 126, 126);
-		dst.at<Vec3b>(r.r_max, i) = (0, 126, 126);
-	}
-
-	for (int i = r.r_min; i <= r.r_max; i++) {
-		dst.at<Vec3b>(i, r.c_min) = (0, 126, 126);
-		dst.at<Vec3b>(i, r.c_max) = (0, 126, 126);
-	}
-
-	return dst;
-}
+//float thinness_ratio(const Mat& src) {
+//	int area = calculate_area(src);
+//	int per = parameter(src).length;
+//
+//	return (4.0f * CV_PI * (float)area) / ((float)per * (float)per);
+//}
 
 Mat transfor_Ycbcr(const Mat& src) {
 	int height = src.rows;
@@ -651,7 +634,11 @@ Mat transfor_Ycbcr(const Mat& src) {
 			double cb = 128.0 - 0.169 * (double)r - 0.331 * (double)g + 0.5 * (double)b;
 			double cr = 128.0 + 0.5 * (double)r - 0.419 * (double)g - 0.081 * (double)b;
 
-			dst.at<Vec3b>(i, j) = Vec3b(y, cb, cr);
+			y = (y < 0.0) ? 0.0 : (y > 255.0) ? 255.0 : y;
+			cb = (cb < 0.0) ? 0.0 : (cb > 255.0) ? 255.0 : cb;
+			cr = (cr < 0.0) ? 0.0 : (cr > 255.0) ? 255.0 : cr;
+
+			dst.at<Vec3b>(i, j) = Vec3b((uchar)y, (uchar)cb, (uchar)cr);
 		}
 	}
 	return dst;
@@ -706,22 +693,24 @@ void draw_hists(const Mat& src) {
 
 }
 
-Mat transform_HSV(const Mat& src) {
+Mat transoform_HSV(const Mat& src) {
 	int height = src.rows;
 	int width = src.cols;
 
-	Mat dst = Mat(height, width, CV_8UC3);
+	Mat dst = Mat(height, width,CV_8UC3, Scalar(0));
 	for (int i = 0; i < height; i++) {
 		for (int j = 0; j < width; j++) {
 			Vec3b pixel = src.at<Vec3b>(i, j);
-			float b =(float) pixel[0] / 255;
-			float g =(float) pixel[1] / 255;
-			float r =(float) pixel[2] / 255;
+			float b = (float)pixel[0] / 255;
+			float g = (float)pixel[1] / 255;
+			float r = (float)pixel[2] / 255;
 			float M = max(b, max(g, r));
 			float m = min(b, min(g, r));
 			float C = M - m;
 			float V = M;
-			float S, H;
+			float S = 0.0;
+			float H = 0.0;
+
 			if (V != 0.0) {
 				S = C / V;
 			}
@@ -738,97 +727,111 @@ Mat transform_HSV(const Mat& src) {
 				H = H + 360;
 			}
 
-			uchar H_norm = (uchar)(H * 255.0f / 360.0f);
-			uchar S_norm = (uchar)(S * 255.0f);
-			uchar V_norm = (uchar)(V * 255.0f);
+			uchar H_norm = H * 255 / 360;
+			uchar S_norm = S * 255;
+			uchar V_norm = V * 255;
 			dst.at<Vec3b>(i, j) = Vec3b(H_norm, S_norm, V_norm);
+
 		}
 	}
+
 	return dst;
 }
 
-Mat obj_instance_HSV(const Mat& src) {
+std::vector<component_info> bfs(const Mat& src, int& label) {
 	int height = src.rows;
 	int width = src.cols;
-
-	Mat dst = Mat(height, width,CV_8UC1, Scalar(0));
-	for (int i = 0; i < height; i++) {
-		for (int j = 0; j < width; j++) {
-			uchar H = src.at<Vec3b>(i, j)[0];
-			uchar S = src.at<Vec3b>(i, j)[1];
-			uchar V = src.at<Vec3b>(i, j)[2];
-
-			if (H >= 0 && H <= 18 && S >= 40 && S <= 150 && V >= 60 && V <= 200) {
-				dst.at<uchar>(i, j) = 255;
-			}
-		}
-	}
-
-	return dst;
-}
-
-Mat bfs(const Mat& src, int& label) {
+	std::vector<component_info> components;
 	label = 0;
-	int height = src.rows;
-	int width = src.cols;
-	Mat labels = Mat(height, width, CV_32SC1, Scalar(0));
+	Mat visit = Mat(height, width, CV_8UC1,Scalar(0));
+	std::queue<Point> q;
 
 	for (int i = 0; i < height; i++) {
 		for (int j = 0; j < width; j++) {
-			if (src.at<uchar>(i, j) == 255 && labels.at<int>(i, j) == 0) {
+			if (src.at<uchar>(i, j) == 255 && visit.at<uchar>(i, j) == 0) {
 				label++;
-				std::queue<Point> q;
-				labels.at<int>(i, j) = label;
-				q.push(Point{ j,i });
+				visit.at<uchar>(i, j) = label;
+				component_info c = { 0,0,j,j,i,i };
+				q.push(Point(j,i));
+
 				while (!q.empty()) {
 					Point p = q.front();
-					std::vector<Point> neighbor = {
-				   Point(p.x - 1, p.y - 1), Point(p.x,   p.y - 1), Point(p.x + 1, p.y - 1),
-				   Point(p.x - 1, p.y),                        Point(p.x + 1, p.y),
-				   Point(p.x - 1, p.y + 1), Point(p.x,   p.y + 1), Point(p.x + 1, p.y + 1)
-					};
 					q.pop();
-					for (auto point : neighbor) {
-						if (inside(point.y, point.x, width, height) && src.at<uchar>(point.y, point.x) == 255 && labels.at<int>(point.y, point.x) == 0) {
-							labels.at<int>(point.y, point.x) = label;
-							q.push(point);
+					c.area++;
+					c.c_max = max(c.c_max, p.x);
+					c.c_min = min(c.c_min, p.x);
+					c.r_max = max(c.r_max, p.y);
+					c.r_min = min(c.r_min, p.y);
+
+					if ((inside(p.y - 1, p.x - 1, width, height) && src.at<uchar>(p.y - 1, p.x - 1) == 0) ||
+						(inside(p.y - 1, p.x, width, height) && src.at<uchar>(p.y - 1, p.x) == 0) ||
+						(inside(p.y - 1, p.x + 1, width, height) && src.at<uchar>(p.y - 1, p.x + 1) == 0) ||
+						(inside(p.y, p.x - 1, width, height) && src.at<uchar>(p.y, p.x - 1) == 0) ||
+						(inside(p.y, p.x + 1, width, height) && src.at<uchar>(p.y, p.x + 1) == 0) ||
+						(inside(p.y + 1, p.x - 1, width, height) && src.at<uchar>(p.y + 1, p.x - 1) == 0) ||
+						(inside(p.y + 1, p.x, width, height) && src.at<uchar>(p.y + 1, p.x) == 0) ||
+						(inside(p.y + 1, p.x + 1, width, height) && src.at<uchar>(p.y + 1, p.x + 1) == 0)
+						) {
+						c.parameter++;
+					}
+					std::vector<Point> neighbor = {
+						Point(p.x - 1, p.y - 1), Point(p.x,   p.y - 1), Point(p.x + 1, p.y - 1),
+						Point(p.x - 1, p.y),                              Point(p.x + 1, p.y),
+						Point(p.x - 1, p.y + 1), Point(p.x,   p.y + 1), Point(p.x + 1, p.y + 1)
+					};
+
+					for (auto n : neighbor) {
+						if (inside(n.y, n.x, width, height) && src.at<uchar>(n.y, n.x) == 255 && visit.at<uchar>(n.y,n.x) == 0) {
+							q.push(n);
+							visit.at<uchar>(n.y, n.x) = label;
 						}
 					}
 				}
+				components.push_back(c);
 			}
 		}
 	}
-
-	return labels;
+	return components;
 }
 
-void draw_with_thiness(const Mat& src, int labels) {
+void draw_with_thiness(const Mat& src, const std::vector<component_info> & components) {
 	int height = src.rows;
 	int width = src.cols;
 
-	Mat dst;
-	for (int l = 1; l <= labels; l++) {
-		dst = Mat(height, width, CV_8UC1, Scalar(0));
-		for (int i = 0; i < height; i++) {
-			for (int j = 0; j < width; j++) {
-				if (src.at<int>(i, j) == l) {
-					dst.at<uchar>(i, j) = 255;
-				}
+	Mat dst = Mat(height, width, CV_8UC1, Scalar(0));
+	
+	for (auto c : components) {
+		if (c.area < 2000)
+			continue;
+
+		double thiness = (4.0 * CV_PI * (double)c.area) / ((double)c.parameter * (double)c.parameter);
+		float aspect = (float)min(height, width) / max(height, width);
+		float fill = (float)c.area / (height * width);
+		printf("Area: %d | Perimeter: %d | Thinness: %.3f\n", c.area, c.parameter, thiness);
+
+		if (aspect < 0.4f || fill < 0.3f)
+			continue;
+	/*	if (thiness < 0.1 || thiness > 0.75)
+			continue;*/
+
+		for (int i = c.r_min; i <= c.r_max; i++) {
+			for (int j = c.c_min; j <= c.c_max; j++) {
+				dst.at<uchar>(i, j) = src.at<uchar>(i, j);
 			}
 		}
-		float thiness = thinness_ratio(dst);
-		int area = calculate_area(dst);
-		if (thiness > 0.2f && thiness < 0.9f && area > 3000) {
-			imshow("face", dst);
-		}
+		imshow("face", dst);
+
 	}
 }
+
 void cam() {
 	int Port = 0;
+	char fname[MAX_PATH];
 	Mat img;
-	VideoCapture cap(Port);
+	VideoCapture cap(2);
 	cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
 	cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+
 
 	if (!cap.isOpened()) {
 		std::cout << "Could not open the camera" << std::endl;
@@ -837,34 +840,25 @@ void cam() {
 
 	while (cap.isOpened()) {
 		cap >> img;
-		Mat blur = gaussian_blur(img);
-		Mat dst = transform_HSV(blur);
-		Mat obj = obj_instance_HSV(dst);
+		//img = imread(fname);
+		//Mat blur = gaussian_blur(img);
+		Mat ycbcr = transfor_Ycbcr(img);
+		normalize_Y(ycbcr);
+		Mat hsv = transoform_HSV(img);
+		Mat obj = get_object_instance(img, ycbcr, hsv);
+		Mat median = median_filter(obj);
+		//int l = 0;
+		//std::vector<component_info> cs = bfs(obj, l);
 		if (!img.empty()) {
-			imshow("Original", img);
-			imshow("HSV", dst);
-			imshow("Bin", obj);
+			//draw_with_thiness(median, cs);
+			imshow("original camera", img);
+			imshow("ycbcr", ycbcr);
+			imshow("hsv", hsv);
+			imshow("binary", obj);
+			imshow("median", median);
 		}
 		waitKey(1);
 	}
-
-	//while (cap.isOpened()) {
-	//	cap >> img;
-	//	Mat blur = gaussian_blur(img);
-	//	Mat dst1 = transfor_Ycbcr(img);
-	//	normalize_Y(dst1);
-	//	draw_hists(dst1);
-	//	Mat obj = get_object_instance(dst1);
-	//	int l = 0;
-	//	Mat b = bfs(obj, l);
-	//	if (!img.empty()) {
-	//		draw_with_thiness(b, l);
-	//		imshow("Obj", obj);
-	//		imshow("Original", img);
-	//		imshow("Video camera", dst1);
-	//	}
-	//	waitKey(1);
-	//}
 }
 
 int main()
