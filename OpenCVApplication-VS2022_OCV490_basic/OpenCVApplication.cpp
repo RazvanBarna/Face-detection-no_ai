@@ -794,38 +794,48 @@ std::vector<component_info> bfs(const Mat& src, int& label) {
 	return components;
 }
 
-void draw_with_thiness(const Mat& src, const std::vector<component_info> & components) {
-	int height = src.rows;
-	int width = src.cols;
+void draw_with_thiness(const Mat& color, const std::vector<component_info>& components) {
+	int height = color.rows;
+	int width = color.cols;
 
-	Mat dst = Mat(height, width, CV_8UC1, Scalar(0));
-	
+	Mat dst = color.clone();
+
 	for (auto c : components) {
-		if (c.area < 2000)
+		if (c.area < 2500)
 			continue;
 
 		double thiness = (4.0 * CV_PI * (double)c.area) / ((double)c.parameter * (double)c.parameter);
-		float aspect = (float)min(height, width) / max(height, width);
-		float fill = (float)c.area / (height * width);
+		/*	if (thiness < 0.45 || thiness > 0.85)
+				continue;*/
+
+				/*float aspect = (float)min(height, width) / max(height, width);
+				float fill = (float)c.area / (height * width);
+				printf("Area: %d | Perimeter: %d | Thinness: %.3f\n", c.area, c.parameter, thiness);*/
+
+				//if (aspect < 0.4f || fill < 0.3f)
+				//	continue;
+		if (thiness < 0.15 || thiness > 0.80)
+			continue;
 		printf("Area: %d | Perimeter: %d | Thinness: %.3f\n", c.area, c.parameter, thiness);
 
-		if (aspect < 0.4f || fill < 0.3f)
-			continue;
-	/*	if (thiness < 0.1 || thiness > 0.75)
-			continue;*/
 
-		for (int i = c.r_min; i <= c.r_max; i++) {
-			for (int j = c.c_min; j <= c.c_max; j++) {
-				dst.at<uchar>(i, j) = src.at<uchar>(i, j);
-			}
-		}
-		imshow("face", dst);
+		int r_min = max(c.r_min, 0);
+		int r_max = min(c.r_max, color.rows - 1);
+		int c_min = max(c.c_min, 0);
+		int c_max = min(c.c_max, color.cols - 1);
 
+		rectangle(dst,
+			Point(c_min, r_min),
+			Point(c_max, r_max),
+			Scalar(0, 255, 0), 2);
+		//imshow("face", dst);
 	}
+	imshow("face", dst);
 }
 
 void cam() {
-	int Port = 0;
+	//int Port = 0;
+	//telefon este 2
 	char fname[MAX_PATH];
 	Mat img;
 	VideoCapture cap(2);
@@ -843,14 +853,15 @@ void cam() {
 		//img = imread(fname);
 		//Mat blur = gaussian_blur(img);
 		Mat ycbcr = transfor_Ycbcr(img);
-		normalize_Y(ycbcr);
+		//normalize_Y(ycbcr); pt cam
 		Mat hsv = transoform_HSV(img);
 		Mat obj = get_object_instance(img, ycbcr, hsv);
 		Mat median = median_filter(obj);
-		//int l = 0;
-		//std::vector<component_info> cs = bfs(obj, l);
+		median = median_filter(median);
+		int l = 0;
+		std::vector<component_info> cs = bfs(median, l);
 		if (!img.empty()) {
-			//draw_with_thiness(median, cs);
+			draw_with_thiness(img, cs);
 			imshow("original camera", img);
 			imshow("ycbcr", ycbcr);
 			imshow("hsv", hsv);
