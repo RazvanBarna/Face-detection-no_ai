@@ -487,6 +487,62 @@ Mat get_object_instance(const Mat& org, const Mat& yCbCr, const Mat& hsv) {
 	return dst;
 }
 
+std::vector<component_info> bfs(const Mat& src, int& label) {
+	int height = src.rows;
+	int width = src.cols;
+	std::vector<component_info> components;
+	label = 0;
+	Mat visit = Mat(height, width, CV_8UC1, Scalar(0));
+	std::queue<Point> q;
+
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			if (src.at<uchar>(i, j) == 255 && visit.at<uchar>(i, j) == 0) {
+				label++;
+				visit.at<uchar>(i, j) = label;
+				component_info c = { 0,0,j,j,i,i };
+				q.push(Point(j, i));
+
+				while (!q.empty()) {
+					Point p = q.front();
+					q.pop();
+					c.area++;
+					c.c_max = max(c.c_max, p.x);
+					c.c_min = min(c.c_min, p.x);
+					c.r_max = max(c.r_max, p.y);
+					c.r_min = min(c.r_min, p.y);
+
+					if ((inside(p.y - 1, p.x - 1, width, height) && src.at<uchar>(p.y - 1, p.x - 1) == 0) ||
+						(inside(p.y - 1, p.x, width, height) && src.at<uchar>(p.y - 1, p.x) == 0) ||
+						(inside(p.y - 1, p.x + 1, width, height) && src.at<uchar>(p.y - 1, p.x + 1) == 0) ||
+						(inside(p.y, p.x - 1, width, height) && src.at<uchar>(p.y, p.x - 1) == 0) ||
+						(inside(p.y, p.x + 1, width, height) && src.at<uchar>(p.y, p.x + 1) == 0) ||
+						(inside(p.y + 1, p.x - 1, width, height) && src.at<uchar>(p.y + 1, p.x - 1) == 0) ||
+						(inside(p.y + 1, p.x, width, height) && src.at<uchar>(p.y + 1, p.x) == 0) ||
+						(inside(p.y + 1, p.x + 1, width, height) && src.at<uchar>(p.y + 1, p.x + 1) == 0)
+						) {
+						c.parameter++;
+					}
+					std::vector<Point> neighbor = {
+						Point(p.x - 1, p.y - 1), Point(p.x,   p.y - 1), Point(p.x + 1, p.y - 1),
+						Point(p.x - 1, p.y),                              Point(p.x + 1, p.y),
+						Point(p.x - 1, p.y + 1), Point(p.x,   p.y + 1), Point(p.x + 1, p.y + 1)
+					};
+
+					for (auto n : neighbor) {
+						if (inside(n.y, n.x, width, height) && src.at<uchar>(n.y, n.x) == 255 && visit.at<uchar>(n.y, n.x) == 0) {
+							q.push(n);
+							visit.at<uchar>(n.y, n.x) = label;
+						}
+					}
+				}
+				components.push_back(c);
+			}
+		}
+	}
+	return components;
+}
+
 Mat gaussian_blur(const Mat& src) {
 	int height = src.rows;
 	int width = src.cols;
@@ -738,62 +794,6 @@ Mat transoform_HSV(const Mat& src) {
 	return dst;
 }
 
-std::vector<component_info> bfs(const Mat& src, int& label) {
-	int height = src.rows;
-	int width = src.cols;
-	std::vector<component_info> components;
-	label = 0;
-	Mat visit = Mat(height, width, CV_8UC1,Scalar(0));
-	std::queue<Point> q;
-
-	for (int i = 0; i < height; i++) {
-		for (int j = 0; j < width; j++) {
-			if (src.at<uchar>(i, j) == 255 && visit.at<uchar>(i, j) == 0) {
-				label++;
-				visit.at<uchar>(i, j) = label;
-				component_info c = { 0,0,j,j,i,i };
-				q.push(Point(j,i));
-
-				while (!q.empty()) {
-					Point p = q.front();
-					q.pop();
-					c.area++;
-					c.c_max = max(c.c_max, p.x);
-					c.c_min = min(c.c_min, p.x);
-					c.r_max = max(c.r_max, p.y);
-					c.r_min = min(c.r_min, p.y);
-
-					if ((inside(p.y - 1, p.x - 1, width, height) && src.at<uchar>(p.y - 1, p.x - 1) == 0) ||
-						(inside(p.y - 1, p.x, width, height) && src.at<uchar>(p.y - 1, p.x) == 0) ||
-						(inside(p.y - 1, p.x + 1, width, height) && src.at<uchar>(p.y - 1, p.x + 1) == 0) ||
-						(inside(p.y, p.x - 1, width, height) && src.at<uchar>(p.y, p.x - 1) == 0) ||
-						(inside(p.y, p.x + 1, width, height) && src.at<uchar>(p.y, p.x + 1) == 0) ||
-						(inside(p.y + 1, p.x - 1, width, height) && src.at<uchar>(p.y + 1, p.x - 1) == 0) ||
-						(inside(p.y + 1, p.x, width, height) && src.at<uchar>(p.y + 1, p.x) == 0) ||
-						(inside(p.y + 1, p.x + 1, width, height) && src.at<uchar>(p.y + 1, p.x + 1) == 0)
-						) {
-						c.parameter++;
-					}
-					std::vector<Point> neighbor = {
-						Point(p.x - 1, p.y - 1), Point(p.x,   p.y - 1), Point(p.x + 1, p.y - 1),
-						Point(p.x - 1, p.y),                              Point(p.x + 1, p.y),
-						Point(p.x - 1, p.y + 1), Point(p.x,   p.y + 1), Point(p.x + 1, p.y + 1)
-					};
-
-					for (auto n : neighbor) {
-						if (inside(n.y, n.x, width, height) && src.at<uchar>(n.y, n.x) == 255 && visit.at<uchar>(n.y,n.x) == 0) {
-							q.push(n);
-							visit.at<uchar>(n.y, n.x) = label;
-						}
-					}
-				}
-				components.push_back(c);
-			}
-		}
-	}
-	return components;
-}
-
 void draw_with_thiness(const Mat& color, const std::vector<component_info>& components) {
 	int height = color.rows;
 	int width = color.cols;
@@ -801,22 +801,23 @@ void draw_with_thiness(const Mat& color, const std::vector<component_info>& comp
 	Mat dst = color.clone();
 
 	for (auto c : components) {
-		if (c.area < 2500)
+		if (c.area < 4000)
 			continue;
 
 		double thiness = (4.0 * CV_PI * (double)c.area) / ((double)c.parameter * (double)c.parameter);
-		/*	if (thiness < 0.45 || thiness > 0.85)
-				continue;*/
 
-				/*float aspect = (float)min(height, width) / max(height, width);
-				float fill = (float)c.area / (height * width);
-				printf("Area: %d | Perimeter: %d | Thinness: %.3f\n", c.area, c.parameter, thiness);*/
+		int box_w = c.c_max - c.c_min;
+		int box_h = c.r_max - c.r_min;
 
-				//if (aspect < 0.4f || fill < 0.3f)
-				//	continue;
-		if (thiness < 0.15 || thiness > 0.80)
+		float wth = (float)box_w / (float)box_h;
+
+		if (wth < 0.4)
 			continue;
-		printf("Area: %d | Perimeter: %d | Thinness: %.3f\n", c.area, c.parameter, thiness);
+
+
+		/*if (thiness < 0.1 || thiness > 0.80)
+			continue;*/
+		printf("Area: %d | Perimeter: %d | Thinness: %.3f | width to height %.3f \n", c.area, c.parameter, thiness, wth);
 
 
 		int r_min = max(c.r_min, 0);
@@ -831,6 +832,92 @@ void draw_with_thiness(const Mat& color, const std::vector<component_info>& comp
 		//imshow("face", dst);
 	}
 	imshow("face", dst);
+	printf("----------------------------------\n");
+}
+
+Mat dilatation(const Mat& src) {
+	int kernel[5][5] = { {0,0,1,0,0},
+							 {0,1,1,1,0},
+							 {1,1,1,1,1},
+							 {0,1,1,1,0},
+							 {0,0,1,0,0} };
+
+	int height = src.rows;
+	int width = src.cols;
+	Mat dst = Mat(height, width, CV_8UC1, Scalar(0));
+
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			bool white = false;
+
+			for (int ki = 0; ki < 5;ki++) {
+				for (int kj = 0; kj < 5; kj++) {
+					if (kernel[ki][kj] == 1) {
+						int ii = i + (ki - 2);
+						int jj = j + (kj - 2);
+
+						if (!inside(ii, jj, width, height))
+							continue;
+						else {
+							if (src.at<uchar>(ii, jj) == 255) {
+								white = true;
+								break;
+							}
+						}
+					}
+				}
+				if (white)
+					break;
+			}
+
+			if (white)
+				dst.at<uchar>(i, j) = 255;
+
+		} 
+	}
+	return dst;
+}
+
+Mat erosion(const Mat& src) {
+	int kernel[5][5] = { {0,0,1,0,0},
+						 {0,1,1,1,0},
+						 {1,1,1,1,1},
+						 {0,1,1,1,0},
+						 {0,0,1,0,0} };
+
+	int height = src.rows;
+	int width = src.cols;
+	Mat dst = Mat(height, width, CV_8UC1, Scalar(0));
+
+
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+
+			bool white = true;
+			for (int ki = 0; ki < 5; ki++) {
+				for (int kj = 0; kj < 5; kj++) {
+					int ii = i + (ki - 2);
+					int jj = j + (kj - 2);
+
+					if (kernel[ki][kj] == 1) {
+						if (!inside(ii, jj, width, height))
+							continue;
+						else {
+							if (src.at<uchar>(ii, jj) == 0) {
+								white = false;
+								break;
+							}
+						}
+					}
+				}
+				if (!white)
+					break;
+			}
+			if (white)
+				dst.at<uchar>(i, j) = 255;
+		}
+	}
+	return dst;
 }
 
 void cam() {
@@ -838,7 +925,7 @@ void cam() {
 	//telefon este 2
 	char fname[MAX_PATH];
 	Mat img;
-	VideoCapture cap(2);
+	VideoCapture cap(0);
 	cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
 	cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
 
@@ -851,22 +938,29 @@ void cam() {
 	while (cap.isOpened()) {
 		cap >> img;
 		//img = imread(fname);
+		//resize(img, img, Size(640, 480));
 		//Mat blur = gaussian_blur(img);
 		Mat ycbcr = transfor_Ycbcr(img);
 		//normalize_Y(ycbcr); pt cam
 		Mat hsv = transoform_HSV(img);
 		Mat obj = get_object_instance(img, ycbcr, hsv);
+		//Mat dil = dilatation(obj);
+		//Mat ero = erosion(dil);
 		Mat median = median_filter(obj);
-		median = median_filter(median);
+		Mat dil = dilatation(median);
+		Mat ero = erosion(dil);
+		//dil = dilatation(dil);
+		//median = median_filter(median);
 		int l = 0;
-		std::vector<component_info> cs = bfs(median, l);
+		std::vector<component_info> cs = bfs(dil, l);
 		if (!img.empty()) {
 			draw_with_thiness(img, cs);
 			imshow("original camera", img);
 			imshow("ycbcr", ycbcr);
 			imshow("hsv", hsv);
 			imshow("binary", obj);
-			imshow("median", median);
+			imshow("dilatation", dil);
+			imshow("erosion", ero);
 		}
 		waitKey(1);
 	}
