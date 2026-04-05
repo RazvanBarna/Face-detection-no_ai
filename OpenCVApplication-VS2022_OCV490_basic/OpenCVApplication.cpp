@@ -2,10 +2,13 @@
 //
 
 #include "stdafx.h"
+#include <string.h>
 #include "common.h"
 #include <opencv2/highgui.hpp>
 #include <iostream>
-#include <queue>
+#include <queue>|
+#include <fstream>
+#include <filesystem>
 #include <opencv2/core/utils/logger.hpp>
 
 
@@ -492,14 +495,14 @@ std::vector<component_info> bfs(const Mat& src, int& label) {
 	int width = src.cols;
 	std::vector<component_info> components;
 	label = 0;
-	Mat visit = Mat(height, width, CV_8UC1, Scalar(0));
+	Mat visit = Mat(height, width, CV_32SC1, Scalar(0));
 	std::queue<Point> q;
 
 	for (int i = 0; i < height; i++) {
 		for (int j = 0; j < width; j++) {
-			if (src.at<uchar>(i, j) == 255 && visit.at<uchar>(i, j) == 0) {
+			if (src.at<uchar>(i, j) == 255 && visit.at<int>(i, j) == 0) {
 				label++;
-				visit.at<uchar>(i, j) = label;
+				visit.at<int>(i, j) = label;
 				component_info c = { 0,0,j,j,i,i };
 				q.push(Point(j, i));
 
@@ -530,9 +533,9 @@ std::vector<component_info> bfs(const Mat& src, int& label) {
 					};
 
 					for (auto n : neighbor) {
-						if (inside(n.y, n.x, width, height) && src.at<uchar>(n.y, n.x) == 255 && visit.at<uchar>(n.y, n.x) == 0) {
+						if (inside(n.y, n.x, width, height) && src.at<uchar>(n.y, n.x) == 255 && visit.at<int>(n.y, n.x) == 0) {
 							q.push(n);
-							visit.at<uchar>(n.y, n.x) = label;
+							visit.at<int>(n.y, n.x) = label;
 						}
 					}
 				}
@@ -794,14 +797,22 @@ Mat transoform_HSV(const Mat& src) {
 	return dst;
 }
 
-void draw_with_thiness(const Mat& color, const std::vector<component_info>& components) {
+std::string get_filename(const char* path) {
+	std::string s(path);
+	size_t pos = s.find_last_of("/\\");
+	if (pos == std::string::npos)
+		return s;
+	return s.substr(pos + 1);
+}
+
+Mat draw_with_thiness(const Mat& color, const std::vector<component_info>& components, const char* fname, std::ofstream& csv) {
 	int height = color.rows;
 	int width = color.cols;
 
 	Mat dst = color.clone();
 
 	for (auto c : components) {
-		if (c.area < 4000)
+		if (c.area < 4500 || c.area > 200000)
 			continue;
 
 		double thiness = (4.0 * CV_PI * (double)c.area) / ((double)c.parameter * (double)c.parameter);
@@ -811,12 +822,12 @@ void draw_with_thiness(const Mat& color, const std::vector<component_info>& comp
 
 		float wth = (float)box_w / (float)box_h;
 
-		if (wth < 0.4)
+		if (wth < 0.6 || wth > 1.0)
 			continue;
 
 
-		/*if (thiness < 0.1 || thiness > 0.80)
-			continue;*/
+		if (thiness < 0.1 || thiness > 0.80)
+			continue;
 		printf("Area: %d | Perimeter: %d | Thinness: %.3f | width to height %.3f \n", c.area, c.parameter, thiness, wth);
 
 
@@ -829,10 +840,10 @@ void draw_with_thiness(const Mat& color, const std::vector<component_info>& comp
 			Point(c_min, r_min),
 			Point(c_max, r_max),
 			Scalar(0, 255, 0), 2);
-		//imshow("face", dst);
+		
+		csv << get_filename(fname) << "," << c_min << "," << c_max << "," << r_min << "," << r_max << "\n";
 	}
-	imshow("face", dst);
-	printf("----------------------------------\n");
+	return dst;
 }
 
 Mat dilatation(const Mat& src) {
@@ -920,56 +931,88 @@ Mat erosion(const Mat& src) {
 	return dst;
 }
 
-void cam() {
-	//int Port = 0;
-	//telefon este 2
+//void cam() {
+//	//int Port = 0;
+//	//telefon este 2
+//	char fname[MAX_PATH];
+//	Mat img;
+//	VideoCapture cap(0);
+//	cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+//	cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+//
+//
+//	if (!cap.isOpened()) {
+//		std::cout << "Could not open the camera" << std::endl;
+//		return;
+//	}
+//
+//	while (openFileDlg(fname)) {
+//		//cap >> img;
+//		img = imread(fname);
+//		//Mat blur = gaussian_blur(img);
+//		Mat ycbcr = transfor_Ycbcr(img);
+//		//normalize_Y(ycbcr); pt cam
+//		Mat hsv = transoform_HSV(img);
+//		Mat obj = get_object_instance(img, ycbcr, hsv);
+//		//Mat dil = dilatation(obj);
+//		//Mat ero = erosion(dil);
+//		Mat median = median_filter(obj);
+//		//Mat dil = dilatation(median);
+//		Mat ero = erosion(median);
+//		//dil = dilatation(dil);
+//		//median = median_filter(median);
+//		int l = 0;
+//		std::vector<component_info> cs = bfs(ero, l);
+//		if (!img.empty()) {
+//			Mat t = draw_with_thiness(img, cs,NULL);
+//			imshow("t", t);
+//			//imwrite("test.jpg",)
+//			imshow("original camera", img);
+//			imshow("ycbcr", ycbcr);
+//			imshow("hsv", hsv);
+//			imshow("binary", obj);
+//			//imshow("dilatation", dil);
+//			imshow("erosion", ero);
+//		}
+//		waitKey(1);
+//	}
+//}
+
+void read_argv_img(char* file) {
 	char fname[MAX_PATH];
-	Mat img;
-	VideoCapture cap(0);
-	cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
-	cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+	strncpy(fname, file, MAX_PATH - 1);
+	fname[MAX_PATH - 1] = '\0';
+	const char* path = "../TestPy/MyDataset/coords.csv";
+	bool file_exists = std::ifstream(path).good();
+	std::ofstream csv(path, std::ios::app);
+	if (!file_exists)
+		csv << "filename,c_min,c_max,r_min,r_max\n";
+	/*while (openFileDlg(fname)) {*/
+		Mat src = imread(fname);
+		if(src.channels() == 1)
+			cvtColor(src, src, COLOR_GRAY2BGR);
 
-
-	if (!cap.isOpened()) {
-		std::cout << "Could not open the camera" << std::endl;
-		return;
-	}
-
-	while (cap.isOpened()) {
-		cap >> img;
-		//img = imread(fname);
-		//resize(img, img, Size(640, 480));
-		//Mat blur = gaussian_blur(img);
-		Mat ycbcr = transfor_Ycbcr(img);
-		//normalize_Y(ycbcr); pt cam
-		Mat hsv = transoform_HSV(img);
-		Mat obj = get_object_instance(img, ycbcr, hsv);
-		//Mat dil = dilatation(obj);
-		//Mat ero = erosion(dil);
+		Mat ycbcr = transfor_Ycbcr(src);
+		Mat hsv = transoform_HSV(src);
+		Mat obj = get_object_instance(src, ycbcr, hsv);
 		Mat median = median_filter(obj);
-		Mat dil = dilatation(median);
-		Mat ero = erosion(dil);
-		//dil = dilatation(dil);
-		//median = median_filter(median);
+		Mat ero = erosion(median);
 		int l = 0;
-		std::vector<component_info> cs = bfs(dil, l);
-		if (!img.empty()) {
-			draw_with_thiness(img, cs);
-			imshow("original camera", img);
-			imshow("ycbcr", ycbcr);
-			imshow("hsv", hsv);
-			imshow("binary", obj);
-			imshow("dilatation", dil);
-			imshow("erosion", ero);
-		}
-		waitKey(1);
-	}
+		std::vector<component_info> cs = bfs(ero, l);
+		Mat thiness = draw_with_thiness(src, cs, fname, csv);
+		std::string file_output = "../TestPy/MyDataset/Images/"+ get_filename(fname);
+		imwrite(file_output, thiness);
+		
+	//}
+	csv.close();
+
 }
 
-int main()
+int main(int argc, char* argv[])
 {
 	cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_FATAL);
 	projectPath = _wgetcwd(0, 0);
-	cam();
+	//cam();
+	read_argv_img(argv[1]);
 	return 0;
 }
